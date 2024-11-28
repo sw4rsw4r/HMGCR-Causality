@@ -975,8 +975,17 @@ compute_Fstat <- function(MRInputObj, nx, ny, n_PCs, multivariate) {
   return(mr_pcgmm_Fstat)
 }
 
+pca.no <- function(res, thres) {
+  bx <- sapply(res[res$names$risk_factors], function(x) x$beta)
+  sx <- sapply(res[res$names$risk_factors], function(x) x$se)
+  nx <- sapply(res[res$names$risk_factors], function(x) mean(x$nsample))
 
-run_PCA_liml <- function(res, dir_results, thres = 0.99, n_PCs = NULL, cor.x = NULL) {
+  a <- 1 / ((nx[1] * sx[, 1]^2) + bx[, 1]^2)
+  A <- (sqrt(a) %*% t(sqrt(a))) * res$ld
+  return(which(cumsum(prcomp(A, scale = FALSE)$sdev^2 / sum((prcomp(A, scale = FALSE)$sdev^2))) > thres)[1])
+}
+
+run_PCA_liml <- function(res, dir_results, n_PCs = NULL, cor.x = NULL) {
   names_risk_factors <- res$names$risk_factors
   names_outcome <- res$names$outcome
   ld <- res$ld
@@ -992,14 +1001,8 @@ run_PCA_liml <- function(res, dir_results, thres = 0.99, n_PCs = NULL, cor.x = N
   sy <- sapply(res[names_outcome], function(x) x$se)
   ny <- sapply(res[names_outcome], function(x) mean(x$nsample))
 
-  pca.no <- function(thres) {
-    a <- 1 / ((nx[1] * sx[, 1]^2) + bx[, 1]^2)
-    A <- (sqrt(a) %*% t(sqrt(a))) * ld
-    return(which(cumsum(prcomp(A, scale = FALSE)$sdev^2 / sum((prcomp(A, scale = FALSE)$sdev^2))) > thres)[1])
-  }
-
   if (is.null(n_PCs)) {
-    n_PCs <- pca.no(thres)
+    n_PCs <- pca.no(res, thres = 0.99)
   }
 
   # unconditional correlation between exposures set to 0
@@ -1046,6 +1049,7 @@ run_PCA_liml <- function(res, dir_results, thres = 0.99, n_PCs = NULL, cor.x = N
     file.path(dir_output, "02_MVMR_PCA_liml.txt"),
     row.names = F, quote = F, col.names = T, sep = "\t"
   )
+  return(res_ci)
 }
 
 
@@ -1165,18 +1169,11 @@ run_BMA <- function(res, dir_results) {
   dir_output <- file.path(dir_results, "BMA", names_outcome, paste(sort(names_risk_factor), collapse = "_"))
   check_dir(dir_output)
 
-  bx <- sapply(res[names_risk_factors], function(x) x$beta)
-  sx <- sapply(res[names_risk_factors], function(x) x$se)
-  nx <- sapply(res[names_risk_factors], function(x) mean(x$nsample))
+  bx <- sapply(res[names_risk_factor], function(x) x$beta)
+  sx <- sapply(res[names_risk_factor], function(x) x$se)
+  nx <- sapply(res[names_risk_factor], function(x) mean(x$nsample))
 
-  pca.no <- function(thres) {
-    a <- 1 / ((nx[1] * sx[, 1]^2) + bx[, 1]^2)
-    A <- (sqrt(a) %*% t(sqrt(a))) * ld
-    return(which(cumsum(prcomp(A, scale = FALSE)$sdev^2 / sum((prcomp(A, scale = FALSE)$sdev^2))) > thres)[1])
-  }
-  thres <- 0.99
-  n_PCs <- pca.no(thres)
-
+  n_PCs <- pca.no(res, thres = 0.99)
   lambda <- calc_lambda(res[[1]], ld, n_PCs, normalise = F)
 
   pca.bx <- sapply(res[names_risk_factor], function(x) {

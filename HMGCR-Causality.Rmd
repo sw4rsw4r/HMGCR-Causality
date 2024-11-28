@@ -102,7 +102,7 @@ for (idx in 1:nrow(input_risk_factors1)) {
   )
 
   # Run Proportional colocalization analysis
-  run_colocProp(gene_of_interest, res, dir_results)
+  run_colocProp(res, dir_results)
 }
 ```
 
@@ -140,7 +140,7 @@ pairs_phenotypic_heterogeneity <- select_phenotypic_heterogeneity(dir_results, l
 ```
 
 ## Run MVMR for the phenotypic heterogeneity pairs
-```{r, res=100, fig.height=15, fig.width=15}
+```{r}
 for (name_outcome in list_of_outcomes) {
   for (idx in 1:length(pairs_phenotypic_heterogeneity)) {
     names_risk_factor <- sort(unlist(strsplit(pairs_phenotypic_heterogeneity[idx], "_")))
