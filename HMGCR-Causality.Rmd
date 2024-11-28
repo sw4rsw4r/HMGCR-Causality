@@ -1,0 +1,267 @@
+---
+title: "HMGCR-Causality"
+author: "Seongwon Hwang"
+date: "22-11-2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load packages and functions
+```{r}
+# Installed the following packages by runing:
+# > conda env create -f env.yml
+# > conda activate HMGCR-Causality
+
+library(dplyr)
+library(vroom)
+library(rtracklayer)
+library(reticulate)
+library(ggplot2)
+library(reshape2)
+library(curl)
+library(MendelianRandomization)
+library(coloc)
+library(susieR)
+
+# remotes::install_version("RcppEigen", version = "0.3.3.9.3")
+# remotes::install_github("cnfoley/hyprcoloc")
+library(hyprcoloc)
+# devtools::install_github("ash-res/prop-coloc")
+library(prop.coloc)
+# install.packages("colocPropTest", dependencies = T)
+library(colocPropTest)
+# devtools::install_github("kassambara/easyGgplot2")
+library(easyGgplot2)
+
+source("PCA-LIML-function.R")
+source("summary_mvMR_BF.R")
+source("summary_mvMR_SSS.R")
+source("utils.R")
+```
+
+## Download data
+```{r}
+# Download LD data using [AWS](https://registry.opendata.aws/ukbb-ld/) by running the following command and save the downloaded data in the data/UKBB_LD/ directory.
+# > aws s3 cp s3://broad-alkesgroup-ukbb-ld/ . --recursive --no-sign-request --exclude "*" --include "UKBB_LD/chr5_74000001_77000001*"
+filepath_ld_mat <- "data/UKBB_LD/chr5_74000001_77000001.npz"
+filepath_ld_meta <- "data/UKBB_LD/chr5_74000001_77000001.gz"
+
+# Go to https://diagram-consortium.org/downloads.html
+# Download Ancestry specific GWAS meta-analysis summary statistics: European
+# Save the downloaded data in data/T2D/ directory.
+# This was published in Mahajan et al (2022)
+filepath_T2D <- "data/T2D/DIAMANTE-EUR.sumstat.txt"
+```
+
+## Load summary data
+```{r}
+gene_of_interest <- "HMGCR"
+window_size <- 10000
+
+filepath_gwas_processed <- paste0("data/RData/", gene_of_interest, "_window_", window_size, "_gwas_processed.RDS")
+
+if (!file.exists(filepath_gwas_processed)) {
+  lst_data_full <- list()
+
+  lst_data_full[["T2D"]] <- load_T2D(filepath_T2D, gene_of_interest, window_size)
+  lst_data_full[["BMI"]] <- load_BMI(gene_of_interest, window_size)
+
+  lst_pheno_GWAS <- c("Acute Insulin response", "Fasting Insulin", "Fasting Glucose", "LDL-C", "HDL-C", "Triglyceride", "Leptin", "Sterol", "Cortisol", "Estradiol", "Vitamin D", "Bile acid", "Aldosterone", "CRP", "Ubiquinone", "CAD", "Testosterone")
+  for (pheno in lst_pheno_GWAS) {
+    lst_data_full[[pheno]] <- load_GWAS(pheno, gene_of_interest, window_size)
+  }
+
+  check_dir("data/RData/")
+  saveRDS(lst_data_full, file = filepath_gwas_processed)
+} else {
+  lst_data_full <- readRDS(filepath_gwas_processed)
+}
+```
+
+## Run Proportional colocalization analysis for all possible pairs
+```{r}
+input_risk_factors1 <- as.data.frame(t(combn(x = names(lst_data_full), m = 2, simplify = T)))
+dir_results <- file.path("results", paste0("window_", window_size), gene_of_interest)
+
+for (idx in 1:nrow(input_risk_factors1)) {
+  names_risk_factor <- sort(as.character(input_risk_factors1[idx, ]))
+
+  lst_data <- list(
+    risk_factors = sapply(names_risk_factor, function(x) lst_data_full[[x]], simplify = F),
+    outcome = NULL
+  )
+  res <- harmonize(
+    gene_of_interest, window_size,
+    lst_data,
+    filepath_ld_mat = filepath_ld_mat,
+    filepath_ld_meta = filepath_ld_meta,
+    dir_output = dir_results
+  )
+
+  # Run Proportional colocalization analysis
+  run_colocProp(gene_of_interest, res, dir_results)
+}
+```
+
+# Identify phenotypic heterogeneity
+```{r}
+df_propcoloc <- get_propcoloc_res(dir_results, list_factors = names(lst_data_full))
+list_pairs <- df_propcoloc$filtered$group
+list_of_outcomes <- c("CAD", "T2D")
+list_factors <- setdiff(sort(unique(unlist(strsplit(list_pairs, "_")))), list_of_outcomes)
+
+for (idx1 in 1:length(list_factors)) {
+  for (idx2 in 1:idx1) {
+    if (idx1 == idx2) next
+    RF1 <- list_factors[idx1]
+    RF2 <- list_factors[idx2]
+    names_risk_factor <- sort(c(RF1, RF2))
+
+    lst_data <- list(
+      risk_factors = sapply(names_risk_factor, function(x) lst_data_full[[x]], simplify = F),
+      outcome = NULL
+    )
+    res <- harmonize(
+      gene_of_interest, window_size,
+      lst_data,
+      filepath_ld_mat = filepath_ld_mat,
+      filepath_ld_meta = filepath_ld_meta,
+      dir_output = dir_results
+    )
+    run_coloc(res, dir_results)
+    run_susie(res, dir_results)
+    run_propcoloc_Wallace(res, dir_results)
+  }
+}
+pairs_phenotypic_heterogeneity <- select_phenotypic_heterogeneity(dir_results, list_factors)
+```
+
+## Run MVMR for the phenotypic heterogeneity pairs
+```{r, res=100, fig.height=15, fig.width=15}
+for (name_outcome in list_of_outcomes) {
+  for (idx in 1:length(pairs_phenotypic_heterogeneity)) {
+    names_risk_factor <- sort(unlist(strsplit(pairs_phenotypic_heterogeneity[idx], "_")))
+
+    lst_data <- list(
+      risk_factors = sapply(names_risk_factor, function(x) lst_data_full[[x]], simplify = F),
+      outcome = sapply(name_outcome, function(x) lst_data_full[[x]], simplify = F)
+    )
+    res <- harmonize(
+      gene_of_interest, window_size,
+      lst_data,
+      filepath_ld_mat = filepath_ld_mat,
+      filepath_ld_meta = filepath_ld_meta,
+      dir_output = dir_results
+    )
+
+    run_PCA_liml(res, dir_results)
+  }
+}
+```
+
+
+## Plot
+```{r}
+dir_figs <- file.path(dir_results, "figures")
+check_dir(dir_figs)
+plot_propcoloc_and_susie_barplots_pairwise(
+  gene_of_interest,
+  list_factors,
+  dir_results,
+  fig_name = file.path(dir_figs, "Figure2_heatmap_of_colocalization_results_from_propcoloc_and_susie.pdf")
+)
+plot_propcoloc_and_wallace_barplots_pairwise(
+  gene_of_interest,
+  list_factors,
+  dir_results,
+  fig_name = file.path(dir_figs, "SupFigure1_heatmap_of_colocalization_results_from_propcoloc_and_colocPropTest.pdf")
+)
+forestplot_OR(
+  list_of_outcomes,
+  dir_results,
+  fig_name = file.path(dir_figs, "Figure3_MVMR.pdf")
+)
+```
+
+# Table 1
+```{r}
+lst1 <- c("LDL-C", "BMI")
+lst2 <- c("CAD", "T2D")
+for (RF1 in lst1) {
+  for (RF2 in lst2) {
+    names_risk_factor <- sort(c(RF1, RF2))
+
+    lst_data <- list(
+      risk_factors = sapply(names_risk_factor, function(x) lst_data_full[[x]], simplify = F),
+      outcome = NULL
+    )
+    res <- harmonize(
+      gene_of_interest, window_size,
+      lst_data,
+      filepath_ld_mat = filepath_ld_mat,
+      filepath_ld_meta = filepath_ld_meta,
+      dir_output = dir_results
+    )
+    run_colocProp(res, dir_results)
+    run_coloc(res, dir_results)
+    run_susie(res, dir_results)
+    run_propcoloc_Wallace(res, dir_results)
+  }
+}
+lst <- sort(c(lst1, lst2))
+df_propcoloc <- get_propcoloc_res(dir_results, lst)$full %>% select("group", "p_cond", "LM_cond")
+df_susie <- get_susie_res(dir_results, lst)$full %>% select("group", "H3", "H4")
+df_coloc <- get_coloc_res(dir_results, lst)$full %>% select("group", "H3", "H4")
+df_wallace <- get_colocPropTest_res(dir_results, lst)$full %>% select("group", "min_fdr")
+
+merged <- Reduce(function(x, y) merge(x, y, by = "group", all = T), list(df_susie, df_coloc, df_propcoloc, df_wallace))
+rownames(merged) <- merged$group
+merged[c("CAD_LDL-C", "LDL-C_T2D", "BMI_CAD", "BMI_T2D"), ]
+```
+
+# Table 2
+```{r}
+for (name_outcome in list_of_outcomes) {
+  names_risk_factor <- list_factors
+
+  lst_data <- list(
+    risk_factors = sapply(names_risk_factor, function(x) lst_data_full[[x]], simplify = F),
+    outcome = sapply(name_outcome, function(x) lst_data_full[[x]], simplify = F)
+  )
+  res <- harmonize(
+    gene_of_interest, window_size,
+    lst_data,
+    filepath_ld_mat = filepath_ld_mat,
+    filepath_ld_meta = filepath_ld_meta,
+    dir_output = dir_results
+  )
+
+  run_BMA(res, dir_results)
+}
+```
+
+# Supplementary Table3
+```{r}
+
+```
+
+# Supplementary Table4
+```{r}
+names_risk_factor <- sort(c("LDL-C", "T2D"))
+
+lst_data <- list(
+  risk_factors = sapply(names_risk_factor, function(x) lst_data_full[[x]], simplify = F),
+  outcome = NULL
+)
+res <- harmonize(
+  gene_of_interest, window_size,
+  lst_data,
+  filepath_ld_mat = filepath_ld_mat,
+  filepath_ld_meta = filepath_ld_meta,
+  dir_output = dir_results
+)
+run_susie(res, dir_results)
+```
