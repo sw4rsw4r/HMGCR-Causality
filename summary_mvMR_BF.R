@@ -18,7 +18,7 @@
 
 
 
-library(combinat)
+suppressMessages(library(combinat))
 
 
 

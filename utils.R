@@ -500,11 +500,14 @@ harmonize <- function(gene_of_interest, window_size, lst_data, filepath_ld_mat, 
   return(res)
 }
 
-run_colocProp <- function(res, dir_results) {
+run_colocProp <- function(res, dir_results, this_prune = 0.4, this_J = 10) {
   RF1 <- res$names$risk_factors[1]
   RF2 <- res$names$risk_factors[2]
-  this_prune <- 0.4
-  this_J <- 10
+
+  dir_output <- file.path(dir_results, "propcoloc", paste(res$names$risk_factors, collapse = "_"))
+  check_dir(dir_output)
+  fname_prop.coloc.res1 <- paste0(dir_output, "/03_prop.coloc_", RF1, "_", RF2, ".RDS")
+  fname_prop.coloc.res2 <- paste0(dir_output, "/03_prop.coloc_", RF1, "_", RF2, ".txt")
 
   lst_lipids <- c("LDL-C", "HDL-C", "Triglyceride")
 
@@ -552,10 +555,6 @@ run_colocProp <- function(res, dir_results) {
   prop.coloc.res$prune <- this_prune
   prop.coloc.res$rsIDs <- res[[1]]$snp
 
-  dir_output <- file.path(dir_results, "propcoloc", paste(res$names$risk_factors, collapse = "_"))
-  check_dir(dir_output)
-  fname_prop.coloc.res1 <- paste0(dir_output, "/03_prop.coloc_", RF1, "_", RF2, ".RDS")
-  fname_prop.coloc.res2 <- paste0(dir_output, "/03_prop.coloc_", RF1, "_", RF2, ".txt")
   saveRDS(prop.coloc.res, file = fname_prop.coloc.res1)
   write.table(as.data.frame(prop.coloc.res[sapply(prop.coloc.res, length) == 1]),
     fname_prop.coloc.res2,
@@ -618,6 +617,7 @@ run_susie <- function(res, dir_results) {
   # pdf(fname_output2, width = 8, height = 5)
   # sensitivity(out, "H3 > 0.5 & H4 < 0.5", row = 1, dataset1 = dat1, dataset2 = dat2)
   # dev.off()
+  return(susie.res)
 }
 
 run_propcoloc_Wallace <- function(res, dir_results) {
@@ -626,6 +626,7 @@ run_propcoloc_Wallace <- function(res, dir_results) {
   dir_output <- file.path(dir_results, "propcoloc_Wallace", paste(res$names$risk_factors, collapse = "_"))
   check_dir(dir_output)
   fname_output <- paste0(dir_output, "/03_propcoloc_Wallace_", RF1, "_", RF2, ".txt")
+
   res <- run_proptests(res[[RF1]], res[[RF2]], LD = res$ld)
   write.table(res,
     fname_output,
@@ -841,6 +842,7 @@ plot_propcoloc_and_susie_barplots_pairwise <- function(gene_of_interest, list_fa
   pdf(fig_name, width = this_width, height = this_height)
   plot(p)
   dev.off()
+  plot(p)
 }
 
 
@@ -924,6 +926,7 @@ plot_propcoloc_and_wallace_barplots_pairwise <- function(gene_of_interest, list_
   pdf(fig_name, width = this_width, height = this_height)
   plot(p)
   dev.off()
+  plot(p)
 }
 
 
@@ -1002,7 +1005,11 @@ run_PCA_liml <- function(res, dir_results, n_PCs = NULL, cor.x = NULL) {
   ny <- sapply(res[names_outcome], function(x) mean(x$nsample))
 
   if (is.null(n_PCs)) {
-    n_PCs <- pca.no(res, thres = 0.99)
+    thres <- 0.99
+    n_PCs <- pca.no(res, thres)
+    fname_output <- paste0("MVMR_PCA_liml_thres_", thres, ".txt")
+  } else {
+    fname_output <- paste0("MVMR_PCA_liml_nPCs_", n_PCs, ".txt")
   }
 
   # unconditional correlation between exposures set to 0
@@ -1046,7 +1053,7 @@ run_PCA_liml <- function(res, dir_results, n_PCs = NULL, cor.x = NULL) {
   }
 
   write.table(res_ci,
-    file.path(dir_output, "02_MVMR_PCA_liml.txt"),
+    file.path(dir_output, fname_output),
     row.names = F, quote = F, col.names = T, sep = "\t"
   )
   return(res_ci)
@@ -1065,7 +1072,7 @@ forestplot_OR <- function(list_of_outcomes, dir_results, fig_name) {
       names_risk_factors <- sort(unlist(strsplit(this_pair, "_")))
 
       if (name_outcome %in% names_risk_factors) next
-      filename_MVMR <- file.path(this_file, "02_MVMR_PCA_liml.txt")
+      filename_MVMR <- file.path(this_file, "MVMR_PCA_liml_thres_0.99.txt")
       if (!file.exists(filename_MVMR)) next
 
       df <- read.delim(filename_MVMR) %>%
@@ -1112,6 +1119,7 @@ forestplot_OR <- function(list_of_outcomes, dir_results, fig_name) {
   plot(p1)
   dev.off()
   # write.table(p_df_filt, sub(".pdf$", ".txt", fig_name), quote = F, row.names = F, col.names = T, sep = "\t")
+  plot(p1)
 }
 
 
@@ -1232,4 +1240,5 @@ run_BMA <- function(res, dir_results) {
   pdf(file.path(dir_output, "03_BMA_pp_marginal.pdf"), width = 8, height = 4.5)
   plot(p1)
   dev.off()
+  return(data.frame(BMA_pp))
 }

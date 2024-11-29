@@ -20,8 +20,8 @@
 # NOTE hash:: prevents clashes wit MendelianRandomization R package
 
 
-library(combinat)
-library(hash)
+suppressMessages(library(combinat))
+suppressMessages(library(hash))
 
 
 
