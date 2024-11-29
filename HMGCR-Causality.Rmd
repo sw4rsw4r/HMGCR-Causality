@@ -7,6 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+options(warnings=-1)
 ```
 
 # Load packages and functions
@@ -15,26 +16,23 @@ knitr::opts_chunk$set(echo = TRUE)
 # > conda env create -f env.yml
 # > conda activate HMGCR-Causality
 
-library(dplyr)
-library(vroom)
-library(rtracklayer)
-library(reticulate)
-library(ggplot2)
-library(reshape2)
-library(curl)
-library(MendelianRandomization)
-library(coloc)
-library(susieR)
+suppressMessages(library(dplyr))
+suppressMessages(library(vroom))
+suppressMessages(library(rtracklayer))
+suppressMessages(library(reticulate))
+suppressMessages(library(ggplot2))
+suppressMessages(library(reshape2))
+suppressMessages(library(curl))
+suppressMessages(library(MendelianRandomization))
+suppressMessages(library(coloc))
+suppressMessages(library(susieR))
 
-# remotes::install_version("RcppEigen", version = "0.3.3.9.3")
-# remotes::install_github("cnfoley/hyprcoloc")
-library(hyprcoloc)
 # devtools::install_github("ash-res/prop-coloc")
-library(prop.coloc)
+suppressMessages(library(prop.coloc))
 # install.packages("colocPropTest", dependencies = T)
-library(colocPropTest)
+suppressMessages(library(colocPropTest))
 # devtools::install_github("kassambara/easyGgplot2")
-library(easyGgplot2)
+suppressMessages(library(easyGgplot2))
 
 source("PCA-LIML-function.R")
 source("summary_mvMR_BF.R")
@@ -79,6 +77,7 @@ if (!file.exists(filepath_gwas_processed)) {
 } else {
   lst_data_full <- readRDS(filepath_gwas_processed)
 }
+sapply(lst_data_full, nrow)
 ```
 
 ## Run Proportional colocalization analysis for all possible pairs
@@ -219,7 +218,7 @@ df_wallace <- get_colocPropTest_res(dir_results, lst)$full %>% select("group", "
 
 merged <- Reduce(function(x, y) merge(x, y, by = "group", all = T), list(df_susie, df_coloc, df_propcoloc, df_wallace))
 rownames(merged) <- merged$group
-merged[c("CAD_LDL-C", "LDL-C_T2D", "BMI_CAD", "BMI_T2D"), ]
+print(merged[c("CAD_LDL-C", "LDL-C_T2D", "BMI_CAD", "BMI_T2D"), ])
 ```
 
 # Table 2
@@ -239,13 +238,40 @@ for (name_outcome in list_of_outcomes) {
     dir_output = dir_results
   )
 
-  run_BMA(res, dir_results)
+  print(run_BMA(res, dir_results))
 }
 ```
 
 # Supplementary Table3
 ```{r}
+names_risk_factor <- sort(c("BMI", "LDL-C"))
+n_PCs_thres <- df_Table3 <- list()
+for (name_outcome in list_of_outcomes) {
+  n_PCs_thres[[name_outcome]] <- list()
 
+  lst_data <- list(
+    risk_factors = sapply(names_risk_factor, function(x) lst_data_full[[x]], simplify = F),
+    outcome = sapply(name_outcome, function(x) lst_data_full[[x]], simplify = F)
+  )
+  res <- harmonize(
+    gene_of_interest, window_size,
+    lst_data,
+    filepath_ld_mat = filepath_ld_mat,
+    filepath_ld_meta = filepath_ld_meta,
+    dir_output = dir_results
+  )
+
+  n_PCs_thres[[name_outcome]] <- list()
+  for (thres in c(0.99, 0.999, 0.9999)) {
+    n_PCs_thres[[name_outcome]]$pca.no <- rbind(n_PCs_thres[[name_outcome]]$pca.no, data.frame(thres, n_PCs = pca.no(res, thres)))
+  }
+  n_PCs_range <- with(n_PCs_thres[[name_outcome]]$pca.no, min(n_PCs):max(n_PCs))
+  for (n_PCs in n_PCs_range) {
+    out_PCA_liml <- run_PCA_liml(res, dir_results, n_PCs)
+    n_PCs_thres[[name_outcome]]$tab <- rbind(n_PCs_thres[[name_outcome]]$tab, out_PCA_liml)
+  }
+  print(n_PCs_thres[[name_outcome]]$tab)
+}
 ```
 
 # Supplementary Table4
@@ -263,5 +289,5 @@ res <- harmonize(
   filepath_ld_meta = filepath_ld_meta,
   dir_output = dir_results
 )
-run_susie(res, dir_results)
+print(run_susie(res, dir_results))
 ```
