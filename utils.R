@@ -777,7 +777,7 @@ plot_propcoloc_and_susie_barplots_pairwise <- function(gene_of_interest, list_fa
       Color = factor(
         ifelse(value < 5, "Not significant", as.character(variable)),
         levels = c("val1", "val2", "Not significant"),
-        labels = c("H3", "H4", "Not significant")
+        labels = c("H3 > 0.5", "H4 > 0.5", "Not significant")
       ),
       position = "bottom"
     )
