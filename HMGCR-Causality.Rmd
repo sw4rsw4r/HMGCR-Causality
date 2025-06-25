@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-options(warnings=-1)
+options(warnings = -1)
 ```
 
 # Load packages and functions
@@ -34,10 +34,23 @@ suppressMessages(library(colocPropTest))
 # devtools::install_github("kassambara/easyGgplot2")
 suppressMessages(library(easyGgplot2))
 
+# devtools::install_github("lapsumchan/MVMR-cML-SuSiE")
+suppressMessages(library(MVMRcMLSuSiE))
+# devtools::install_github("xue-hr/MRcML")
+suppressMessages(library(MRcML))
+# install.packages("conflicted")
+suppressMessages(library(conflicted))
+
 source("PCA-LIML-function.R")
 source("summary_mvMR_BF.R")
 source("summary_mvMR_SSS.R")
 source("utils.R")
+
+suppressMessages(conflict_prefer("mr_cML", "MRcML"))
+suppressMessages(conflicts_prefer(base::setdiff))
+suppressMessages(conflicts_prefer(base::intersect))
+suppressMessages(conflicts_prefer(combinat::combn))
+suppressMessages(conflicts_prefer(dplyr::filter))
 ```
 
 ## Download data
@@ -290,4 +303,97 @@ res <- harmonize(
   dir_output = dir_results
 )
 print(run_susie(res, dir_results))
+```
+
+# Implements the MVMR-cML-SuSiE pipeline
+This script is based on the tutorial provided at: 
+https://github.com/lapsumchan/MVMR-cML-SuSiE
+This implements the MVMR-cML-SuSiE pipeline for multivariable Mendelian randomization analysis, including harmonization, LD pruning, and estimation steps (step 2 and step 3).
+```{r}
+dir_results <- file.path("results", "MRcML", gene_of_interest)
+
+name_outcome <- list_of_outcomes[1]
+names_risk_factor <- list_factors
+filepath_gwas_processed <- paste0("data/RData/", gene_of_interest, "_window_", window_size, "_gwas_processed.RDS")
+lst_data_full <- readRDS(filepath_gwas_processed)
+# Remove rows with missing SNPs
+lst_data_full <- lapply(lst_data_full, function(x) x[!is.na(x$snp), ])
+# Remove duplicated SNP entries
+lst_data_full <- lapply(lst_data_full, function(x) x[!duplicated(x$snp), ])
+
+lst_data <- list(
+  risk_factors = sapply(names_risk_factor, function(x) lst_data_full[[x]], simplify = F),
+  outcome = sapply(name_outcome, function(x) lst_data_full[[x]], simplify = F)
+)
+res <- harmonize(
+  gene_of_interest, window_size,
+  lst_data,
+  filepath_ld_mat = filepath_ld_mat,
+  filepath_ld_meta = filepath_ld_meta,
+  dir_output = dir_results
+)
+
+# Set LD threshold for pruning
+threshold <- 0.9
+ld_matrix <- res$ld
+
+# Get SNP IDs and initialize selection flags
+snp_ids <- colnames(ld_matrix)
+n_snps <- length(snp_ids)
+to_keep <- rep(TRUE, n_snps)
+
+# LD pruning: exclude SNPs highly correlated (r² > threshold) with previous ones
+for (i in seq_len(n_snps)) {
+  if (!to_keep[i]) next
+
+  if (i < n_snps) {
+    high_ld <- ld_matrix[i, (i + 1):n_snps] > threshold
+    to_keep[(i + 1):n_snps][high_ld] <- FALSE
+  }
+}
+
+# Compute average sample size for each risk factor and outcome
+sample.sizes <- sapply(res[names_risk_factor], function(x) mean(x$nsample))
+sample.sizes <- c(sample.sizes, mean(res[[name_outcome]]$nsample))
+
+# Extract effect sizes (beta) and standard errors (se) for valid SNPs
+beta.exposure.ls <- lapply(res[names_risk_factor], function(x) x$beta[to_keep])
+se.exposure.ls <- lapply(res[names_risk_factor], function(x) x$se[to_keep])
+beta.outcome.ls <- rep(list(res[[name_outcome]]$beta[to_keep]), length(beta.exposure.ls))
+se.outcome.ls <- rep(list(res[[name_outcome]]$se[to_keep]), length(beta.exposure.ls))
+
+# Convert lists to matrices/vectors for modeling
+beta.exposure.mat <- as.matrix(as.data.frame(beta.exposure.ls))
+se.exposure.mat <- as.matrix(as.data.frame(se.exposure.ls))
+beta.outcome.vec <- beta.outcome.ls[[1]]
+se.outcome.vec <- se.outcome.ls[[1]]
+pval.exposure.mat <- as.matrix(as.data.frame(lapply(res[names_risk_factor], function(x) x$pval[to_keep])))
+
+# Step 2: Run MVMR (multivariable Mendelian randomization) estimation using cML (constrained maximum likelihood)
+suppressWarnings(
+  step2.res <- mvmr.cml.susie.step2(
+    sample.sizes.subset = sample.sizes,
+    beta.exposure.mat = beta.exposure.mat,
+    se.exposure.mat = se.exposure.mat,
+    beta.outcome.vec = beta.outcome.vec,
+    se.outcome.vec = se.outcome.vec,
+    pval.exposure.mat = pval.exposure.mat,
+    use.openGWAS = FALSE,
+    cutoff = 1
+  )
+)
+
+# Prepare correlation matrix (rho) for risk factors and outcome
+names <- setdiff(names(res), c("ld", "names"))
+rho.mat <- matrix(0, length(list_factors) + 1, length(list_factors) + 1)
+colnames(rho.mat) <- rownames(rho.mat) <- names
+for (RF1 in names) {
+  for (RF2 in names) {
+    rho.mat[RF1, RF2] <- cor(res[[RF1]]$beta, res[[RF2]]$beta)
+  }
+}
+
+# Step 3: Final MVMR estimation with adjustment for invalid instruments and correlation
+step3.res <- mvmr.cml.susie.step3(step2.res$mvdat, step2.res$invalid.idx, step2.res$theta.vec, rho.mat)
+step3.res$alpha
 ```
