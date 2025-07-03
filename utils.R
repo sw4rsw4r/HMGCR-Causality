@@ -235,11 +235,6 @@ load_GWAS <- function(pheno, gene_of_interest, window_size, data_type = "quant",
     download_addr <- "http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90012001-GCST90013000/GCST90012609/GCST90012609_buildGRCh37.tsv.gz"
     nsample <- 1128
   }
-  if (pheno == "CRP") {
-    fname <- "data/GWAS/GCST90309897.h.tsv.gz"
-    download_addr <- "http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90309001-GCST90310000/GCST90309897/harmonised/GCST90309897.h.tsv.gz"
-    nsample <- 174488
-  }
   if (pheno == "Ubiquinone") {
     fname <- "data/GWAS/35668104-GCST90024608-EFO_0021486-Build37.f.tsv.gz"
     download_addr <- "http://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/GCST90024001-GCST90025000/GCST90024608/harmonised/35668104-GCST90024608-EFO_0021486-Build37.f.tsv.gz"

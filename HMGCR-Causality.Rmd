@@ -80,7 +80,7 @@ if (!file.exists(filepath_gwas_processed)) {
   lst_data_full[["T2D"]] <- load_T2D(filepath_T2D, gene_of_interest, window_size)
   lst_data_full[["BMI"]] <- load_BMI(gene_of_interest, window_size)
 
-  lst_pheno_GWAS <- c("Acute Insulin response", "Fasting Insulin", "Fasting Glucose", "LDL-C", "HDL-C", "Triglyceride", "Leptin", "Sterol", "Cortisol", "Estradiol", "Vitamin D", "Bile acid", "Aldosterone", "CRP", "Ubiquinone", "CAD", "Testosterone")
+  lst_pheno_GWAS <- c("Acute Insulin response", "Fasting Insulin", "Fasting Glucose", "LDL-C", "HDL-C", "Triglyceride", "Leptin", "Sterol", "Cortisol", "Estradiol", "Vitamin D", "Bile acid", "Aldosterone", "Ubiquinone", "CAD", "Testosterone")
   for (pheno in lst_pheno_GWAS) {
     lst_data_full[[pheno]] <- load_GWAS(pheno, gene_of_interest, window_size)
   }
